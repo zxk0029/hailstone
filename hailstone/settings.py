@@ -105,7 +105,7 @@ CHAINEYE_GRPC_CHANNEL_URL = '127.0.0.1:50252'
 
 STATIC_ROOT = os.path.join(BASE_DIR, "static")
 STATIC_URL = "/static/"
-STATICFILES_DIRS = [os.path.join(BASE_DIR, "common/static")]
+# STATICFILES_DIRS = [os.path.join(BASE_DIR, "common/static")]
 
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
@@ -116,4 +116,6 @@ try:
 except ImportError:
     pass
 
-# usSszPkH
+# Default primary key field type
+# https://docs.djangoproject.com/en/stable/ref/settings/#default-auto-field
+DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
