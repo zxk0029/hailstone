@@ -12,6 +12,7 @@ from api.wallet.token_api_v1 import (
     get_tokens,
 )
 from api.wallet.hd_api_v1 import (
+    get_support_chain,
     get_balance,
     get_wallet_balance,
     get_nonce,
@@ -87,6 +88,7 @@ from api.solid.api_v1 import (
 
 urlpatterns = [
     # Hd wallet module
+    path(r'get_support_chain', get_support_chain, name='get_support_chain'),
     path(r'get_balance', get_balance, name='get_balance'),
     path(r'get_wallet_balance', get_wallet_balance, name='get_wallet_balance'),
     path(r'get_nonce', get_nonce, name='get_nonce'),

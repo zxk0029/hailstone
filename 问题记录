@@ -1,0 +1,10 @@
+getAccount方法
+返回的balance是0，之前提了pr，合并后，看看是否修复
+
+getTxByAddress方法
+Fee: txs[i].TxId,应该改成Fee: txs[i].TxFee,
+修复后，使用get_address_transaction进行测试
+
+GetTxByHash方法似乎有问题
+查询0x7ead65088e31d94ef78ddc55a61870c31903f53b7b2a36808cec87dbc2a9d6ed时候，没有返回from地址
+

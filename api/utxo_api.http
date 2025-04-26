@@ -1,0 +1,125 @@
+###
+POST http://localhost:8000/api/get_support_chain
+Content-Type: application/json
+
+{
+    "chain": "Bitcoin",
+    "network": "mainnet"
+}
+
+###
+POST http://localhost:8000/api/get_balance
+Content-Type: application/json
+
+{
+    "device_id": "1111111221",
+    "wallet_uuid": "222222111",
+    "index":"0",
+    "chain": "Bitcoin",
+    "symbol": "BTC",
+    "network": "mainnet",
+    "address": "bc1p2k5asngt5sxl0esjwcw2448zcmjj97sv5ca72hdl36e6jp3cdjpqxz0fys",
+    "contract_address": ""
+}
+
+###
+POST http://localhost:8000/api/get_wallet_balance
+
+{
+    "device_id": "1111111221",
+    "wallet_uuid": "222222111",
+    "chain": "Bitcoin"
+}
+
+### Note: get_nonce might return an error for UTXO chains like Bitcoin
+###
+POST http://localhost:8000/api/get_nonce
+Content-Type: application/json
+
+{
+    "chain": "Bitcoin",
+    "network": "mainnet",
+    "symbol": "BTC",
+    "address": "bc1p2k5asngt5sxl0esjwcw2448zcmjj97sv5ca72hdl36e6jp3cdjpqxz0fys"
+}
+
+###
+POST http://localhost:8000/api/get_account_info
+Content-Type: application/json
+
+{
+    "chain": "Bitcoin",
+    "network": "mainnet",
+    "symbol": "BTC",
+    "address": "bc1q..."
+}
+
+###
+POST http://localhost:8000/api/get_fee
+Content-Type: application/json
+
+{
+    "chain": "Bitcoin",
+    "network": "mainnet",
+    "symbol": "BTC",
+    "fee_way": "normal" # UTXO client returns slow, normal, fast, best
+}
+
+###
+POST http://localhost:8000/api/get_sign_tx_info
+Content-Type: application/json
+
+{
+    "chain": "Bitcoin",
+    "network": "mainnet",
+    "symbol": "BTC",
+    "address": "bc1p2k5asngt5sxl0esjwcw2448zcmjj97sv5ca72hdl36e6jp3cdjpqxz0fys"
+}
+
+###
+POST http://localhost:8000/api/send_transaction
+Content-Type: application/json
+
+{
+    "chain": "Bitcoin",
+    "network": "mainnet",
+    "symbol": "BTC",
+    "rawtx": "...raw_transaction_hex_string..."
+}
+
+###
+POST http://localhost:8000/api/get_address_transaction
+Content-Type: application/json
+
+{
+    "chain": "Bitcoin",
+    "network": "mainnet",
+    "symbol": "BTC",
+    "address": "bc1p2k5asngt5sxl0esjwcw2448zcmjj97sv5ca72hdl36e6jp3cdjpqxz0fys",
+    "contract_addr": "",
+    "page": 1,
+    "page_size": 20
+}
+
+###
+POST http://localhost:8000/api/get_hash_transaction
+Content-Type: application/json
+
+{
+    "chain": "Bitcoin",
+    "network": "mainnet",
+    "symbol": "BTC",
+    "hash": "...transaction_hash..."
+}
+
+###
+POST http://localhost:8000/api/get_unspend_list
+Content-Type: application/json
+
+# Note: This is only applicable for UTXO chains
+{
+    "chain": "Bitcoin",
+    "network": "mainnet",
+    "address": "bc1p2k5asngt5sxl0esjwcw2448zcmjj97sv5ca72hdl36e6jp3cdjpqxz0fys"
+}
+
