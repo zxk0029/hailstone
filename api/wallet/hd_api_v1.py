@@ -81,8 +81,9 @@ def get_balance(request):
     symbol = params.get('symbol', "ETH")
     address = params.get('address', "")
     index = params.get('index', "0")
-    contract_addr = params.get('contract_addr', "")
-
+    contract_address = params.get('contract_address', "")
+    if not contract_address:
+        contract_address = "0x00"
     client, error_msg = get_rpc_client_by_chain(chain)
     if client is None:
         return error_json(error_msg, 4000)
@@ -101,14 +102,14 @@ def get_balance(request):
                 coin=symbol,
                 network=network,
                 address=address,
-                contract_address=contract_addr
+                contract_address=contract_address
             )
         elif isinstance(client, UtxoClient):
             result = client.get_account(
                 chain=chain,
                 network=network,
                 address=address,
-                brc20_address=contract_addr
+                brc20_address=contract_address
             )
         else:
             return error_json("Internal error: Invalid client type.", 5000)
@@ -281,9 +282,10 @@ def get_nonce(request):
 def get_account_info(request):
     params = json.loads(request.body.decode())
     network = params.get('network', "mainnet")
-    chain = params.get('chain', "Solana")
-    symbol = params.get('symbol', "SOL")
+    chain = params.get('chain', "Ethereum")
+    symbol = params.get('symbol', "ETH")
     address = params.get('address', "")
+    contract_address = params.get('contract_address', "0x00")
 
     client, error_msg = get_rpc_client_by_chain(chain)
     if client is None:
@@ -302,7 +304,8 @@ def get_account_info(request):
                 chain=chain,
                 coin=symbol,
                 network=network,
-                address=address
+                address=address,
+                contract_address=contract_address
             )
             if result.code == common_pb2.SUCCESS:
                 data = {
@@ -546,7 +549,7 @@ def get_address_transaction(request):
     chain = params.get('chain', "Ethereum")
     symbol = params.get('symbol', "ETH")
     address = params.get('address', "")
-    contract_addr = params.get('contract_addr', "")
+    contract_addr = params.get('contract_addr', "0x00")
     try:
         page = int(params.get('page', 1))
         page_size = int(params.get('page_size', 10))
