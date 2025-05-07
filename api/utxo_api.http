@@ -3,7 +3,7 @@ POST http://localhost:8000/api/get_support_chain
 Content-Type: application/json
 
 {
-    "chain": "Bitcoin",
+    "chain": "bitcoin",
     "network": "mainnet"
 }
 
@@ -15,10 +15,10 @@ Content-Type: application/json
     "device_id": "1111111221",
     "wallet_uuid": "222222111",
     "index":"0",
-    "chain": "Bitcoin",
+    "chain": "bitcoin",
     "symbol": "BTC",
     "network": "mainnet",
-    "address": "bc1p2k5asngt5sxl0esjwcw2448zcmjj97sv5ca72hdl36e6jp3cdjpqxz0fys",
+    "address": "36Sn1rywJ6V6xGU3BMZMsfg624jy4AXp3J",
     "contract_address": ""
 }
 
@@ -28,19 +28,19 @@ POST http://localhost:8000/api/get_wallet_balance
 {
     "device_id": "1111111221",
     "wallet_uuid": "222222111",
-    "chain": "Bitcoin"
+    "chain": "bitcoin"
 }
 
-### Note: get_nonce might return an error for UTXO chains like Bitcoin
+### Note: get_nonce might return an error for UTXO chains like bitcoin
 ###
 POST http://localhost:8000/api/get_nonce
 Content-Type: application/json
 
 {
-    "chain": "Bitcoin",
+    "chain": "bitcoin",
     "network": "mainnet",
     "symbol": "BTC",
-    "address": "bc1p2k5asngt5sxl0esjwcw2448zcmjj97sv5ca72hdl36e6jp3cdjpqxz0fys"
+    "address": "bc1qwvlvmha3cvhyq6qztjzumq2d63ffhtzyxxu6q8"
 }
 
 ###
@@ -48,10 +48,10 @@ POST http://localhost:8000/api/get_account_info
 Content-Type: application/json
 
 {
-    "chain": "Bitcoin",
+    "chain": "bitcoin",
     "network": "mainnet",
     "symbol": "BTC",
-    "address": "bc1q..."
+    "address": "36Sn1rywJ6V6xGU3BMZMsfg624jy4AXp3J"
 }
 
 ###
@@ -59,21 +59,21 @@ POST http://localhost:8000/api/get_fee
 Content-Type: application/json
 
 {
-    "chain": "Bitcoin",
+    "chain": "bitcoin",
     "network": "mainnet",
     "symbol": "BTC",
-    "fee_way": "normal" # UTXO client returns slow, normal, fast, best
+    "fee_way": "medium"
 }
 
-###
+### 获取交易信息，包含nonce、gas等信息
 POST http://localhost:8000/api/get_sign_tx_info
 Content-Type: application/json
 
 {
-    "chain": "Bitcoin",
+    "chain": "bitcoin",
     "network": "mainnet",
     "symbol": "BTC",
-    "address": "bc1p2k5asngt5sxl0esjwcw2448zcmjj97sv5ca72hdl36e6jp3cdjpqxz0fys"
+    "address": "bc1qwvlvmha3cvhyq6qztjzumq2d63ffhtzyxxu6q8"
 }
 
 ###
@@ -81,7 +81,7 @@ POST http://localhost:8000/api/send_transaction
 Content-Type: application/json
 
 {
-    "chain": "Bitcoin",
+    "chain": "bitcoin",
     "network": "mainnet",
     "symbol": "BTC",
     "rawtx": "...raw_transaction_hex_string..."
@@ -92,10 +92,10 @@ POST http://localhost:8000/api/get_address_transaction
 Content-Type: application/json
 
 {
-    "chain": "Bitcoin",
+    "chain": "bitcoin",
     "network": "mainnet",
     "symbol": "BTC",
-    "address": "bc1p2k5asngt5sxl0esjwcw2448zcmjj97sv5ca72hdl36e6jp3cdjpqxz0fys",
+    "address": "bc1qwvlvmha3cvhyq6qztjzumq2d63ffhtzyxxu6q8",
     "contract_addr": "",
     "page": 1,
     "page_size": 20
@@ -106,10 +106,10 @@ POST http://localhost:8000/api/get_hash_transaction
 Content-Type: application/json
 
 {
-    "chain": "Bitcoin",
+    "chain": "bitcoin",
     "network": "mainnet",
     "symbol": "BTC",
-    "hash": "...transaction_hash..."
+    "hash": "7f12e9a5c7c44231376220d003ae94cc6c2ac9c7f6891cff6542ce28468b3c4f"
 }
 
 ###
@@ -118,8 +118,8 @@ Content-Type: application/json
 
 # Note: This is only applicable for UTXO chains
 {
-    "chain": "Bitcoin",
+    "chain": "bitcoin",
     "network": "mainnet",
-    "address": "bc1p2k5asngt5sxl0esjwcw2448zcmjj97sv5ca72hdl36e6jp3cdjpqxz0fys"
+    "address": "36Sn1rywJ6V6xGU3BMZMsfg624jy4AXp3J"
 }
 

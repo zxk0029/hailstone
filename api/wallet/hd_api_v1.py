@@ -127,15 +127,15 @@ def get_balance(request):
             exchange__name="binance"
         ).order_by("-id").first()
         if market_price:
-            usd_price = market_price.usd_price or 1
-            cny_price = market_price.cny_price or 7
+            usd_price = market_price.usd_price
+            cny_price = market_price.cny_price
     else:
         stable_price = StablePrice.objects.filter(
             asset__name=symbol,
         ).order_by("-id").first()
         if stable_price:
-            usd_price = stable_price.usd_price or 1
-            cny_price = stable_price.cny_price or 7
+            usd_price = stable_price.usd_price
+            cny_price = stable_price.cny_price
 
     wallet = Wallet.objects.filter(device_id=device_id, wallet_uuid=wallet_uuid).first()
     if wallet is None:
@@ -434,33 +434,34 @@ def get_sign_tx_info(request):
     usd_price = 1
 
     try:
-        if isinstance(client, (AccountClient, UtxoClient)):  # Both have get_fee
+        # Both have get_fee
+        if isinstance(client, AccountClient):
             fee_result = client.get_fee(chain=chain, coin=symbol, network=network, address=address)
-            if fee_result.code == common_pb2.SUCCESS:
-                # Extract different fee levels - use best_fee as fallback
-                slow = getattr(fee_result, 'slow_fee', None) or getattr(fee_result, 'best_fee', None)
-                normal = getattr(fee_result, 'normal_fee', None) or getattr(fee_result, 'best_fee', None)
-                fast = getattr(fee_result, 'fast_fee', None) or getattr(fee_result, 'best_fee', None)
-                gas_list = [
-                    {"index": 0, "gas_price": slow or "0"},
-                    {"index": 1, "gas_price": normal or "0"},
-                    {"index": 2, "gas_price": fast or "0"}
-                ]
-            else:
-                print(f"RPC call failed for get_fee in get_sign_tx_info: {fee_result.code} - {fee_result.msg}")
-                return error_json(f"Failed to fetch fee: {fee_result.msg}", 5000)
+        elif isinstance(client, UtxoClient):
+            fee_result = client.get_fee(chain=chain, coin=symbol, network=network)
         else:
             return error_json("Internal error: Invalid client type for fee.", 5000)
 
-        # --- Fetch Nonce (only for Account) ---
-        if isinstance(client, AccountClient):
-            nonce_result = client.get_account(chain=chain, coin=symbol, network=network, address=address)
-            if nonce_result.code == common_pb2.SUCCESS:
-                nonce = nonce_result.sequence
-            else:
-                print(
-                    f"RPC call failed for get_account (nonce) in get_sign_tx_info: {nonce_result.code} - {nonce_result.msg}")
-                return error_json(f"Failed to fetch nonce: {nonce_result.msg}", 5000)
+        if fee_result.code == common_pb2.SUCCESS:
+            # Extract different fee levels - use best_fee as fallback
+            slow = getattr(fee_result, 'slow_fee', None) or getattr(fee_result, 'best_fee', None)
+            normal = getattr(fee_result, 'normal_fee', None) or getattr(fee_result, 'best_fee', None)
+            fast = getattr(fee_result, 'fast_fee', None) or getattr(fee_result, 'best_fee', None)
+            gas_list = [
+                {"index": 0, "gas_price": slow or "0"},
+                {"index": 1, "gas_price": normal or "0"},
+                {"index": 2, "gas_price": fast or "0"}
+            ]
+
+            # --- Fetch Nonce (only for Account) ---
+            if isinstance(client, AccountClient):
+                nonce_result = client.get_account(chain=chain, coin=symbol, network=network, address=address)
+                if nonce_result.code == common_pb2.SUCCESS:
+                    nonce = nonce_result.sequence
+                else:
+                    print(
+                        f"RPC call failed for get_account (nonce) in get_sign_tx_info: {nonce_result.code} - {nonce_result.msg}")
+                    return error_json(f"Failed to fetch nonce: {nonce_result.msg}", 5000)
 
     except grpc.RpcError as e:
         return error_json(f"RPC Error fetching tx info: {e.details()}", 5003)
@@ -646,17 +647,7 @@ def get_hash_transaction(request):
                 hash=hash_val
             )
             if result.code == common_pb2.SUCCESS:
-                # Both responses have a TxMessage field named 'tx'
-                # Need to convert the single TxMessage to a dict/json
                 if result.tx:
-                    print("result: ", result)
-                    print("result.tx: ", result.tx)
-                    # Assuming AddressTransaction can handle the TxMessage
-                    addr_tx = AddressTransaction(result.tx)
-                    print("addr_tx: ", addr_tx.as_json(symbol, "", "", chain))
-                    # Pass necessary context - source address isn't known here easily
-                    # Maybe just return the TxMessage fields directly?
-                    # return ok_json(addr_tx.as_json(symbol, "?", "", chain)) # Example
                     tx_data = {
                         "hash": result.tx.hash,
                         "index": getattr(result.tx, 'index', None),  # UTXO has index
@@ -668,9 +659,9 @@ def get_hash_transaction(request):
                             getattr(result.tx, 'value', None)],  # Adapt account/utxo 'value'
                         "fee": result.tx.fee,
                         "status": result.tx.status,
-                        "type": result.tx.type,
+                        "type": getattr(result.tx, 'type', None),
                         "height": result.tx.height,
-                        "contract_address": result.tx.contract_address,
+                        "contract_address": getattr(result.tx, 'contract_address', getattr(result.tx, 'brc20_address', None)),
                         "datetime": result.tx.datetime,
                         "data": getattr(result.tx, 'data', None),
                     }
@@ -680,9 +671,6 @@ def get_hash_transaction(request):
             else:
                 print(f"RPC call failed for get_hash_transaction ({chain}/{hash_val}): {result.code} - {result.msg}")
                 error_detail = f"RPC server failed: {result.msg}" if result.msg else "RPC server failed"
-                # Check for specific 'not found' codes if available
-                # if result.code == specific_not_found_code:
-                #     return error_json("Transaction not found by hash.", 4004)
                 return error_json(error_detail, 5000)
         else:
             return error_json("Internal error: Invalid client type.", 5000)
@@ -970,29 +958,20 @@ def get_unspend_list(request):
     # This should now call the UtxoClient
     params = json.loads(request.body.decode())
     network = params.get('network', "mainnet")
-    chain = params.get('chain', "Bitcoin")  # Example default
+    chain = params.get('chain', "bitcoin")
     address = params.get('address', "")
-    # symbol = params.get('symbol', "BTC") # Symbol might be needed? UtxoClient method doesn't take it.
 
-    # --- Get RPC Client ---
     client, error_msg = get_rpc_client_by_chain(chain)
     if client is None:
         return error_json(error_msg, 4000)
-    # --- End Get RPC Client ---
 
-    # --- Ensure it's UtxoClient ---
     if not isinstance(client, UtxoClient):
         return error_json(f"Unspent outputs are only applicable for UTXO chains, not '{chain}'.", 4000)
-    # --- End Ensure ---
-
-    # --- Parameter Validation ---
     if network not in ["mainnet", "testnet"]:
         return error_json("Do not support network", 4000)
     if not address:
         return error_json("address is empty", 4000)
-    # --- End Parameter Validation ---
 
-    # --- Get Unspent Outputs via RPC ---
     try:
         result = client.get_unspent_outputs(
             chain=chain,
@@ -1003,21 +982,20 @@ def get_unspend_list(request):
             unspent_outputs = []
             for utxo in result.unspent_outputs:
                 unspent_outputs.append({
-                    "tx_id": utxo.tx_id,  # From proto def? Check actual field name
-                    "tx_hash": utxo.tx_hash,  # From proto def?
+                    "tx_id": utxo.tx_id,
                     "tx_hash_big_endian": utxo.tx_hash_big_endian,
-                    "tx_output_n": utxo.tx_output_n,
+                    "tx_output_n": getattr(utxo, 'tx_output_n', None),
                     "script": utxo.script,
-                    "value": utxo.value,  # assuming this is the amount in smallest unit
-                    "value_hex": getattr(utxo, 'value_hex', None),  # If exists
-                    "confirmations": utxo.confirmations,
-                    "height": getattr(utxo, 'height', None),  # If exists
-                    "block_time": getattr(utxo, 'block_time', None),  # If exists
-                    "address": getattr(utxo, 'address', None),  # If exists
-                    "unspent_amount": getattr(utxo, 'unspent_amount', None),  # If exists
-                    "index": getattr(utxo, 'index', None),  # If exists
+                    "value": getattr(utxo, 'unspent_amount', None),
+                    "value_hex": getattr(utxo, 'value_hex', None),
+                    "confirmations": getattr(utxo, 'confirmations', None),
+                    "height": getattr(utxo, 'height', None),
+                    "block_time": getattr(utxo, 'block_time', None),
+                    "address": getattr(utxo, 'address', None),
+                    "unspent_amount": getattr(utxo, 'unspent_amount', None),
+                    "index": getattr(utxo, 'index', None),
                 })
-            return ok_json(unspent_outputs)  # Return the list of utxos
+            return ok_json(unspent_outputs)
         else:
             print(f"RPC call failed for get_unspent_outputs ({chain}/{address}): {result.code} - {result.msg}")
             return error_json(f"RPC server failed: {result.msg}", 5000)
@@ -1027,8 +1005,6 @@ def get_unspend_list(request):
     except Exception as e:
         print(f"Error calling RPC get_unspent_outputs: {e}")
         return error_json("Failed to fetch unspent outputs from RPC.", 5000)
-    # --- End Get Unspent Outputs via RPC ---
-
 
 # @check_api_token
 def get_note_book(request):

@@ -8,3 +8,5 @@ Fee: txs[i].TxId,应该改成Fee: txs[i].TxFee,
 GetTxByHash方法似乎有问题
 查询0x7ead65088e31d94ef78ddc55a61870c31903f53b7b2a36808cec87dbc2a9d6ed时候，没有返回from地址
 
+------
+上诉问题已经解决
