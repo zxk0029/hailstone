@@ -2,18 +2,15 @@
 
 import json
 from decimal import Decimal
-
 import grpc
 from django.db import transaction
-
 from api.wallet.types import AddressTransaction
 from common.helpers import ok_json, error_json, d0
 from market.models import StablePrice, MarketPrice
 from services.account_client import AccountClient
 from services.utxo_client import UtxoClient
 from services.savour_rpc import common_pb2
-from wallet.models import Chain, Asset, Wallet, WalletAsset, Address, AddressAsset, AddresNote, TokenConfig, \
-    AddressAmountStat
+from wallet.models import Chain, Asset, Wallet, WalletAsset, Address, AddressAsset, AddresNote, TokenConfig, AddressAmountStat
 
 
 def get_rpc_client_by_chain(chain_name: str):
@@ -368,13 +365,7 @@ def get_fee(request):
         # Both clients have get_fee
         # AccountClient getFee returns slow_fee, normal_fee, fast_fee
         # UtxoClient getFee returns best_fee, best_fee_sat, slow_fee, normal_fee, fast_fee
-        if isinstance(client, AccountClient):
-            result = client.get_fee(
-                chain=chain,
-                coin=symbol,
-                network=network,
-            )
-        elif isinstance(client, UtxoClient):
+        if isinstance(client, AccountClient) or isinstance(client, UtxoClient):
             result = client.get_fee(
                 chain=chain,
                 coin=symbol,
@@ -434,7 +425,6 @@ def get_sign_tx_info(request):
     usd_price = 1
 
     try:
-        # Both have get_fee
         if isinstance(client, AccountClient):
             fee_result = client.get_fee(chain=chain, coin=symbol, network=network, address=address)
         elif isinstance(client, UtxoClient):
@@ -523,13 +513,11 @@ def send_transaction(request):
             )
             if result.code == common_pb2.SUCCESS:
                 data = {
-                    # Account response uses 'tx_hash', UTXO uses 'tx_hash' too. Good.
                     "hash": result.tx_hash
                 }
                 return ok_json(data)
             else:
                 print(f"RPC call failed for send_transaction ({chain}): {result.code} - {result.msg}")
-                # Provide the specific error message from RPC if available
                 error_detail = f"RPC server failed: {result.msg}" if result.msg else "RPC server failed"
                 return error_json(error_detail, 5000)
         else:
@@ -540,7 +528,6 @@ def send_transaction(request):
     except Exception as e:
         print(f"Error calling RPC send_tx: {e}")
         return error_json("Failed to send transaction via RPC.", 5000)
-    # --- End Send Transaction via RPC ---
 
 
 # @check_api_token
@@ -618,27 +605,25 @@ def get_hash_transaction(request):
     params = json.loads(request.body.decode())
     network = params.get('network', "mainnet")
     chain = params.get('chain', "Ethereum")
-    symbol = params.get('symbol', "ETH")  # Needed for coin param
-    hash_val = params.get('hash', "")  # Renamed variable to avoid conflict
+    symbol = params.get('symbol', "ETH")
+    hash_val = params.get('hash', "")
 
-    # --- Get RPC Client ---
     client, error_msg = get_rpc_client_by_chain(chain)
     if client is None:
         return error_json(error_msg, 4000)
-    # --- End Get RPC Client ---
 
-    # --- Parameter Validation ---
-    # db_chain = Chain.objects.filter(name=chain).first()
-    # db_asset = Asset.objects.filter(name=symbol).first()
+    db_chain = Chain.objects.filter(name=chain).first()
+    if db_chain is None:
+        return error_json(f"Do not support chain '{chain}'", 4000)
+    db_asset = Asset.objects.filter(name=symbol, chain=db_chain).first()
+    if db_asset is None:
+        return error_json(f"Do not support symbol '{symbol}' for chain '{chain}'", 4000)
     if network not in ["mainnet", "testnet"]:
         return error_json("Do not support network", 4000)
-    if not hash_val:  # Check for empty string too
+    if not hash_val:
         return error_json("hash is empty", 4000)
-    # --- End Parameter Validation ---
 
-    # --- Get Tx By Hash via RPC ---
     try:
-        # Both clients have get_tx_by_hash
         if isinstance(client, (AccountClient, UtxoClient)):
             result = client.get_tx_by_hash(
                 chain=chain,
@@ -650,13 +635,10 @@ def get_hash_transaction(request):
                 if result.tx:
                     tx_data = {
                         "hash": result.tx.hash,
-                        "index": getattr(result.tx, 'index', None),  # UTXO has index
-                        "froms": [f.address for f in getattr(result.tx, 'froms', [])] or [
-                            getattr(result.tx, 'from', None)],  # Adapt account/utxo 'from'
+                        "index": getattr(result.tx, 'index', None),
+                        "froms": [f.address for f in getattr(result.tx, 'froms', [])] or [getattr(result.tx, 'from', None)],
                         "tos": [t.address for t in getattr(result.tx, 'tos', [])] or [getattr(result.tx, 'to', None)],
-                        # Adapt account/utxo 'to'
-                        "values": [v.value for v in getattr(result.tx, 'values', [])] or [
-                            getattr(result.tx, 'value', None)],  # Adapt account/utxo 'value'
+                        "values": [v.value for v in getattr(result.tx, 'values', [])] or [getattr(result.tx, 'value', None)],
                         "fee": result.tx.fee,
                         "status": result.tx.status,
                         "type": getattr(result.tx, 'type', None),
@@ -680,20 +662,15 @@ def get_hash_transaction(request):
     except Exception as e:
         print(f"Error calling RPC get_tx_by_hash: {e}")
         return error_json("Failed to fetch transaction by hash from RPC.", 5000)
-    # --- End Get Tx By Hash via RPC ---
 
 
 # @check_api_token
 @transaction.atomic()
 def submit_wallet_info(request):
-    # This function interacts with the local DB (Wallet, Address, Asset) based on input.
-    # It does not directly call the RPC client based on chain type.
-    # It seems okay as is, assuming the frontend sends correct chain/symbol combinations.
-    # No changes needed here regarding client split.
     params = json.loads(request.body.decode())
     chain = params.get('chain', "Ethereum")
     symbol = params.get('symbol', "ETH")
-    network = params.get('network', "mainnet")  # Network is stored? Where? Not in Wallet model.
+    network = params.get('network', "mainnet")
     device_id = params.get('device_id', "")
     wallet_uuid = params.get('wallet_uuid', "")
     wallet_name = params.get('wallet_name', "")
@@ -713,65 +690,58 @@ def submit_wallet_info(request):
     if db_chain is None:
         return error_json(f"Do not support chain '{chain}'", 4000)
 
-    # Asset should be related to the chain
     db_asset = Asset.objects.filter(name=symbol, chain=db_chain).first()
     if db_asset is None:
-        # Or maybe allow assets not tied to a specific chain? Check requirements.
         db_asset_generic = Asset.objects.filter(name=symbol, chain__isnull=True).first()
         if db_asset_generic is None:
             return error_json(f"Do not support symbol '{symbol}' for chain '{chain}' or generically.", 4000)
         else:
-            db_asset = db_asset_generic  # Use the generic asset
+            db_asset = db_asset_generic
 
-    # Use update_or_create for wallet
     wallet, created = Wallet.objects.update_or_create(
         chain=db_chain,
         device_id=device_id,
         wallet_uuid=wallet_uuid,
         defaults={
-            'wallet_name': wallet_name,
-            # Initialize amounts if created?
-            'asset_usd': d0 if created else F('asset_usd'),  # Keep existing value on update
-            'asset_cny': d0 if created else F('asset_cny')
+            'wallet_name': wallet_name
         }
     )
 
-    # Use update_or_create for wallet asset
+    if created:
+        wallet.asset_usd = d0
+        wallet.asset_cny = d0
+        wallet.save(update_fields=['asset_usd', 'asset_cny'])
+
     wallet_asset, asset_created = WalletAsset.objects.update_or_create(
         wallet=wallet,
         asset=db_asset,
-        contract_addr=contract_addr,  # Contract addr relevant here
-        defaults={}  # No specific fields to update here? Balance is on AddressAsset
+        contract_addr=contract_addr,
+        defaults={}
     )
 
-    # Use update_or_create for address
     addr_obj, addr_created = Address.objects.update_or_create(
         wallet=wallet,
-        address=address,  # Assume address is unique per wallet? Or address+index?
-        index=index,  # Use index in lookup if it defines uniqueness with address
-        defaults={}  # No specific fields to update here?
+        address=address,
+        index=index,
+        defaults={}
     )
 
-    # Create AddressAsset if address was newly created
     if addr_created:
         AddressAsset.objects.create(
             wallet=wallet,
             asset=db_asset,
             address=addr_obj,
-            balance=d0,  # Initial balance 0
+            balance=d0,
             asset_usd=d0,
             asset_cny=d0
         )
-    # If address existed, its AddressAsset balance will be updated by get_balance calls.
 
     return ok_json("submit wallet success")
 
 
 # @check_api_token
-@transaction.atomic()  # Make this atomic too?
+@transaction.atomic()
 def batch_submit_wallet(request):
-    # Similar to submit_wallet_info, interacts with local DB based on batch data.
-    # Does not call RPC client. Seems okay as is.
     params = json.loads(request.body.decode())
     batch_wallet = params.get('batch_wallet', None)
     if batch_wallet is None:
@@ -790,7 +760,6 @@ def batch_submit_wallet(request):
         address = wallet_data.get("address")
         contract_addr = wallet_data.get("contract_addr", "")
 
-        # Basic validation per item
         if not all([chain_name, symbol_name, device_id, wallet_uuid, wallet_name, index is not None, address]):
             errors.append(f"Item {idx}: Missing required fields.")
             continue
@@ -807,19 +776,20 @@ def batch_submit_wallet(request):
             continue
 
         try:
-            # Use update_or_create for wallet
             wallet, created = Wallet.objects.update_or_create(
                 chain=db_chain,
                 device_id=device_id,
                 wallet_uuid=wallet_uuid,
                 defaults={
-                    'wallet_name': wallet_name,
-                    'asset_usd': d0 if created else F('asset_usd'),
-                    'asset_cny': d0 if created else F('asset_cny')
+                    'wallet_name': wallet_name
                 }
             )
 
-            # Use update_or_create for wallet asset
+            if created:
+                wallet.asset_usd = d0
+                wallet.asset_cny = d0
+                wallet.save(update_fields=['asset_usd', 'asset_cny'])
+
             wallet_asset, asset_created = WalletAsset.objects.update_or_create(
                 wallet=wallet,
                 asset=db_asset,
@@ -827,7 +797,6 @@ def batch_submit_wallet(request):
                 defaults={}
             )
 
-            # Use update_or_create for address
             addr_obj, addr_created = Address.objects.update_or_create(
                 wallet=wallet,
                 address=address,
@@ -835,7 +804,6 @@ def batch_submit_wallet(request):
                 defaults={}
             )
 
-            # Create AddressAsset if address was newly created
             if addr_created:
                 AddressAsset.objects.create(
                     wallet=wallet,
@@ -848,10 +816,8 @@ def batch_submit_wallet(request):
             submitted_count += 1
         except Exception as e:
             errors.append(f"Item {idx}: Error processing - {e}")
-            # Log the exception e
 
     if errors:
-        # Return partial success with errors
         return ok_json({
             "message": f"Batch submitted with {len(errors)} errors.",
             "submitted_count": submitted_count,
@@ -864,20 +830,18 @@ def batch_submit_wallet(request):
 #  @check_api_token
 @transaction.atomic()  # Make atomic
 def delete_wallet(request):
-    # DB only operation. No RPC calls. Okay as is.
     params = json.loads(request.body.decode())
     device_id = params.get('device_id', None)
     wallet_uuid = params.get('wallet_uuid', None)
     chain = params.get('chain', None)
 
-    if not all([device_id, wallet_uuid, chain]):  # Simplified check
+    if not all([device_id, wallet_uuid, chain]):
         return error_json("invalid Params (device_id, wallet_uuid, chain required)", 4000)
 
     db_chain = Chain.objects.filter(name=chain).first()
     if db_chain is None:
         return error_json(f"Do not support chain '{chain}'", 4000)
 
-    # Find the specific wallet
     wallet_qs = Wallet.objects.filter(
         chain=db_chain,
         device_id=device_id,
@@ -886,12 +850,11 @@ def delete_wallet(request):
     wallet = wallet_qs.first()
 
     if wallet:
-        # Delete related objects first (cascade might handle some, but explicit is safer)
-        AddressAmountStat.objects.filter(address__wallet=wallet).delete()  # Delete stats first
+        AddressAmountStat.objects.filter(address__wallet=wallet).delete()
         AddressAsset.objects.filter(wallet=wallet).delete()
         Address.objects.filter(wallet=wallet).delete()
         WalletAsset.objects.filter(wallet=wallet).delete()
-        wallet_qs.delete()  # Delete the wallet itself
+        wallet_qs.delete()
         return ok_json("delete wallet success")
     else:
         return error_json("Wallet not found for deletion.", 4004)
@@ -900,22 +863,20 @@ def delete_wallet(request):
 # @check_api_token
 @transaction.atomic()  # Make atomic
 def delete_wallet_token(request):
-    # DB only operation. No RPC calls. Okay as is.
     params = json.loads(request.body.decode())
     device_id = params.get('device_id', None)
     wallet_uuid = params.get('wallet_uuid', None)
     symbol = params.get('symbol', None)
-    contract_addr = params.get('contract_addr', None)  # Use this in filter
+    contract_addr = params.get('contract_addr', None)
     chain = params.get('chain', None)
 
-    if not all([device_id, wallet_uuid, symbol, chain]):  # contract_addr is optional? check requirements
+    if not all([device_id, wallet_uuid, symbol, chain]):
         return error_json("Invalid Params (device_id, wallet_uuid, symbol, chain required)", 4000)
 
     db_chain = Chain.objects.filter(name=chain).first()
     if db_chain is None:
         return error_json(f"Do not support chain '{chain}'", 4000)
 
-    # Asset can be chain-specific or generic
     db_asset = Asset.objects.filter(name=symbol, chain=db_chain).first() or \
                Asset.objects.filter(name=symbol, chain__isnull=True).first()
     if db_asset is None:
@@ -930,24 +891,20 @@ def delete_wallet_token(request):
     if not wallet:
         return error_json("Wallet not found.", 4004)
 
-    # Delete the specific WalletAsset entry
     deleted_count, _ = WalletAsset.objects.filter(
         wallet=wallet,
         asset=db_asset,
-        contract_addr=contract_addr or "",  # Handle None contract_addr if needed
+        contract_addr=contract_addr or "",
     ).delete()
 
-    # Delete associated AddressAssets for all addresses under this wallet
     address_list = Address.objects.filter(wallet=wallet)
     AddressAsset.objects.filter(
         wallet=wallet,
         asset=db_asset,
-        address__in=address_list  # Filter by addresses belonging to the wallet
-        # Consider contract_addr here? If AddressAsset stores it. Current model doesn't show it.
+        address__in=address_list
     ).delete()
 
     if deleted_count > 0:
-        # Recalculate wallet total balance? Or assume a background task does it.
         return ok_json("delete wallet token success")
     else:
         return error_json("Token configuration not found for this wallet.", 4004)
@@ -955,7 +912,6 @@ def delete_wallet_token(request):
 
 #  @check_api_token
 def get_unspend_list(request):
-    # This should now call the UtxoClient
     params = json.loads(request.body.decode())
     network = params.get('network', "mainnet")
     chain = params.get('chain', "bitcoin")
@@ -1008,7 +964,6 @@ def get_unspend_list(request):
 
 # @check_api_token
 def get_note_book(request):
-    # DB only operation. No RPC calls. Okay as is.
     params = json.loads(request.body.decode())
     device_id = params.get('device_id')
     try:
@@ -1030,7 +985,7 @@ def get_note_book(request):
 
     ret_address_data = []
     for address_note in address_list:
-        ret_address_data.append(address_note.list_to_dict())  # Ensure list_to_dict() is correct
+        ret_address_data.append(address_note.list_to_dict())
 
     data = {
         "total": total,
@@ -1041,7 +996,6 @@ def get_note_book(request):
 
 # @check_api_token
 def add_note_book(request):
-    # DB only operation. No RPC calls. Okay as is.
     params = json.loads(request.body.decode())
     device_id = params.get('device_id')
     chain_name = params.get('chain')
@@ -1062,15 +1016,14 @@ def add_note_book(request):
         return error_json(f"Do not support symbol '{asset_name}' for chain '{chain_name}'.", 4000)
 
     address_db_exists = AddresNote.objects.filter(
-        # Filter should be more specific? device_id + address? Or device_id + address + chain + asset?
         device_id=device_id,
         address=address,
-        chain=db_chain,  # Add chain to uniqueness constraint?
-        asset=db_asset  # Add asset to uniqueness constraint?
+        chain=db_chain,
+        asset=db_asset
     ).exists()
 
     if address_db_exists:
-        return error_json("This address note already exists for this device/chain/asset.", 4009)  # Use 409 Conflict?
+        return error_json("This address note already exists for this device/chain/asset.", 4009)
     else:
         try:
             AddresNote.objects.create(
@@ -1088,7 +1041,6 @@ def add_note_book(request):
 
 # @check_api_token
 def upd_note_book(request):
-    # DB only operation. No RPC calls. Okay as is.
     params = json.loads(request.body.decode())
     try:
         address_id = int(params.get('address_id'))
@@ -1098,7 +1050,7 @@ def upd_note_book(request):
     memo = params.get('memo')
     address = params.get('address')
 
-    if not all([memo, address]):  # Check if memo and address are provided
+    if not all([memo, address]):
         return error_json("Missing required fields (memo, address).", 4000)
 
     updated_count = AddresNote.objects.filter(id=address_id).update(
@@ -1114,7 +1066,6 @@ def upd_note_book(request):
 
 # @check_api_token
 def del_note_book(request):
-    # DB only operation. No RPC calls. Okay as is.
     params = json.loads(request.body.decode())
     try:
         address_id = int(params.get('address_id'))
@@ -1131,34 +1082,30 @@ def del_note_book(request):
 
 # @check_api_token
 def hot_token_list(request):
-    # DB only operation. No RPC calls. Okay as is.
     params = json.loads(request.body.decode())
-    chain_name = params.get('chain', "Ethereum")  # Default chain
+    chain_name = params.get('chain', "Ethereum")
 
     db_chain = Chain.objects.filter(name=chain_name).first()
     if db_chain is None:
         return error_json(f"Do not support chain '{chain_name}'", 4000)
 
-    # Uses TokenConfig model
     token_config_list = TokenConfig.objects.filter(
         chain=db_chain,
-        is_hot="yes"  # Assuming 'yes'/'no' field
-    ).order_by("id")  # Order by name or rank?
+        is_hot="yes"
+    ).order_by("id")
 
     token_config_data = []
     for token_config in token_config_list:
-        token_config_data.append(token_config.list_to_dict())  # Ensure list_to_dict() is correct
+        token_config_data.append(token_config.list_to_dict())
 
     return ok_json(token_config_data)
 
 
 # @check_api_token
-def sourch_add_token(request):
-    # DB only operation. No RPC calls. Okay as is.
-    # 'sourch'? Should be 'search'?
+def search_add_token(request):
     params = json.loads(request.body.decode())
     chain_name = params.get('chain', "Ethereum")
-    token_name = params.get('token_name')  # Search term
+    token_name = params.get('token_name')
 
     if not token_name:
         return error_json("token_name parameter is required for search.", 4000)
@@ -1167,11 +1114,10 @@ def sourch_add_token(request):
     if db_chain is None:
         return error_json(f"Do not support chain '{chain_name}'", 4000)
 
-    # Uses TokenConfig model
     token_config_list = TokenConfig.objects.filter(
         chain=db_chain,
-        token_name__icontains=token_name,  # Case-insensitive contains search
-    ).order_by("id")  # Order by name?
+        token_name__icontains=token_name,
+    ).order_by("id")
 
     token_config_data = []
     for token_config in token_config_list:
@@ -1182,66 +1128,60 @@ def sourch_add_token(request):
 
 # @check_api_token
 def get_wallet_asset(request):
-    # This retrieves aggregated info across multiple wallets for a device.
-    # Does not make per-wallet RPC calls. Okay as is.
     params = json.loads(request.body.decode())
     device_id = params.get('device_id')
 
     if not device_id:
         return error_json("device_id is required.", 4000)
 
-    # Get all wallets for the device
     wallet_list = Wallet.objects.filter(
         device_id=device_id,
-    ).order_by("id")  # Order by creation or name?
+    ).order_by("id")
 
     total_asset_usd_stat = d0
     total_asset_cny_stat = d0
     token_list_return = []
 
     for wallet in wallet_list:
-        # Use Decimal for aggregation
-        total_asset_usd_stat += wallet.asset_usd or d0  # Handle None
-        total_asset_cny_stat += wallet.asset_cny or d0  # Handle None
+        total_asset_usd_stat += wallet.asset_usd or d0
+        total_asset_cny_stat += wallet.asset_cny or d0
 
-        # Get assets for this specific wallet
         wallet_asset_list = WalletAsset.objects.filter(
             wallet=wallet,
-        ).order_by("id")  # Order by asset name?
+        ).order_by("id")
 
         wallet_balance_list = []
         for wallet_asset in wallet_asset_list:
-            wallet_balance_list.append(wallet_asset.to_dict())  # Ensure to_dict is correct
+            wallet_balance_list.append(wallet_asset.to_dict())
 
         wallet_balance_data = {
-            "chain": wallet.chain.name,  # Add chain info here
+            "chain": wallet.chain.name,
             "wallet_name": wallet.wallet_name,
-            "wallet_uuid": wallet.wallet_uuid,  # Add uuid
-            "wallet_balance": wallet_balance_list,  # This contains individual token balances
-            "wallet_total_usd": format(wallet.asset_usd or 0, ".4f"),  # Per-wallet total
-            "wallet_total_cny": format(wallet.asset_cny or 0, ".4f"),  # Per-wallet total
+            "wallet_uuid": wallet.wallet_uuid,
+            "wallet_balance": wallet_balance_list,
+            "wallet_total_usd": format(wallet.asset_usd or 0, ".4f"),
+            "wallet_total_cny": format(wallet.asset_cny or 0, ".4f"),
         }
         token_list_return.append(wallet_balance_data)
 
     data = {
         "total_asset_usd": format(total_asset_usd_stat, ".4f"),
         "total_asset_cny": format(total_asset_cny_stat, ".4f"),
-        "wallet_data": token_list_return,  # Rename token_list to wallet_data for clarity
+        "wallet_data": token_list_return,
     }
     return ok_json(data)
 
 
 # @check_api_token
 def update_wallet_name(request):
-    # DB only operation. No RPC calls. Okay as is.
     params = json.loads(request.body.decode())
     device_id = params.get('device_id', "")
     wallet_uuid = params.get('wallet_uuid', "")
     wallet_name = params.get('wallet_name', "")
-    # chain_name = params.get('chain', "") # Need chain to uniquely identify wallet? Yes.
+    chain_name = params.get('chain', "")
 
-    # if not chain_name:
-    #     return error_json("chain parameter is required.", 4000)
+    if not chain_name:
+        return error_json("chain parameter is required.", 4000)
     if not wallet_name:
         return error_json("wallet name is null", 4000)
     if not device_id:
@@ -1249,21 +1189,16 @@ def update_wallet_name(request):
     if not wallet_uuid:
         return error_json("wallet_uuid is required", 4000)
 
-    # db_chain = Chain.objects.filter(name=chain_name).first()
-    # if not db_chain:
-    #     return error_json(f"Chain '{chain_name}' not supported.", 4000)
-
-    # Wallet is identified by device_id and uuid, assuming uuid is globally unique per device
-    # If uuid is only unique per chain, need chain filter too. Let's assume unique per device.
+    db_chain = Chain.objects.filter(name=chain_name).first()
+    if not db_chain:
+        return error_json(f"Chain '{chain_name}' not supported.", 4000)
     updated_count = Wallet.objects.filter(
         device_id=device_id,
         wallet_uuid=wallet_uuid,
-        # chain=db_chain, # Add if uuid is only unique per chain
+        chain=db_chain,
     ).update(wallet_name=wallet_name)
 
     if updated_count > 0:
         return ok_json("update wallet name success")
     else:
-        # Be more specific if chain was required:
-        # return error_json(f"Wallet not found for device '{device_id}', uuid '{wallet_uuid}' on chain '{chain_name}'.", 4004)
-        return error_json(f"Wallet not found for device '{device_id}' and uuid '{wallet_uuid}'.", 4004)
+        return error_json(f"Wallet not found for device '{device_id}', uuid '{wallet_uuid}' on chain '{chain_name}'.", 4004)

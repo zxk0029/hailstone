@@ -23,22 +23,6 @@ Content-Type: application/json
 }
 
 ###
-POST http://localhost:8000/api/get_balance
-Content-Type: application/json
-
-{
-    "device_id": "1111111221",
-    "wallet_uuid": "222222111",
-    "index":"0",
-    "chain": "ethereum",
-    "symbol": "ETH",
-    "network": "testnet",
-    "address": "0x159cA92b12F67E5676d82C238f4906692618A555",
-    "contract_address": "0x00"
-}
-
-
-###
 POST http://localhost:8000/api/get_wallet_balance
 Content-Type: application/json
 
